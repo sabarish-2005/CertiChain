@@ -119,6 +119,21 @@ function isMissingSupabaseSchemaError(error: SupabaseErrorLike | null | undefine
   );
 }
 
+function shouldFallbackToLocal(error: SupabaseErrorLike | null | undefined): boolean {
+  if (!error) return false;
+  if (isMissingSupabaseSchemaError(error)) return true;
+
+  const message = (error.message ?? "").toLowerCase();
+  return (
+    message.includes("row-level security") ||
+    message.includes("permission denied") ||
+    message.includes("jwt") ||
+    message.includes("not authenticated") ||
+    message.includes("fetch") ||
+    message.includes("network")
+  );
+}
+
 function canonicalize(value: unknown): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -228,7 +243,7 @@ export async function getAllStudentRecords(): Promise<StudentRecord[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    if (isMissingSupabaseSchemaError(error)) {
+    if (shouldFallbackToLocal(error)) {
       return getLocalStudentRecords();
     }
     throw new Error(error.message || "Unable to load student records.");
@@ -239,13 +254,13 @@ export async function getAllStudentRecords(): Promise<StudentRecord[]> {
   }
 
   const { data: semesters, error: semestersError } = await supabaseAny.from("semesters").select("*");
-  if (isMissingSupabaseSchemaError(semestersError)) {
+  if (shouldFallbackToLocal(semestersError)) {
     return getLocalStudentRecords();
   }
   throwIfSupabaseError(semestersError, "Unable to load semester records.");
 
   const { data: documents, error: documentsError } = await supabaseAny.from("documents").select("*");
-  if (isMissingSupabaseSchemaError(documentsError)) {
+  if (shouldFallbackToLocal(documentsError)) {
     return getLocalStudentRecords();
   }
   throwIfSupabaseError(documentsError, "Unable to load document records.");
@@ -298,7 +313,7 @@ export async function saveStudentRecord(record: StudentRecord): Promise<void> {
     verification_id: record.verification_id,
     created_at: record.created_at,
   });
-  if (isMissingSupabaseSchemaError(studentError)) {
+  if (shouldFallbackToLocal(studentError)) {
     saveLocalStudentRecord(record);
     return;
   }
@@ -314,14 +329,14 @@ export async function saveStudentRecord(record: StudentRecord): Promise<void> {
     }));
 
     const { error: deleteSemestersError } = await supabaseAny.from("semesters").delete().eq("student_id", studentId);
-    if (isMissingSupabaseSchemaError(deleteSemestersError)) {
+    if (shouldFallbackToLocal(deleteSemestersError)) {
       saveLocalStudentRecord(record);
       return;
     }
     throwIfSupabaseError(deleteSemestersError, "Unable to update semester records.");
 
     const { error: insertSemestersError } = await supabaseAny.from("semesters").insert(semesterPayload);
-    if (isMissingSupabaseSchemaError(insertSemestersError)) {
+    if (shouldFallbackToLocal(insertSemestersError)) {
       saveLocalStudentRecord(record);
       return;
     }
@@ -338,7 +353,7 @@ export async function saveStudentRecord(record: StudentRecord): Promise<void> {
     sem5_marksheet: sem5 ?? null,
     sem6_marksheet: sem6 ?? null,
   });
-  if (isMissingSupabaseSchemaError(documentsSaveError)) {
+  if (shouldFallbackToLocal(documentsSaveError)) {
     saveLocalStudentRecord(record);
     return;
   }
@@ -360,7 +375,7 @@ export async function findStudentRecord(query: string): Promise<StudentRecord | 
     .or(`reg_no.eq.${normalized},verification_id.eq.${normalized}`)
     .limit(1);
 
-  if (isMissingSupabaseSchemaError(studentsError)) {
+  if (shouldFallbackToLocal(studentsError)) {
     return localRecord;
   }
   throwIfSupabaseError(studentsError, "Unable to search student records.");
@@ -372,7 +387,7 @@ export async function findStudentRecord(query: string): Promise<StudentRecord | 
     .from("semesters")
     .select("*")
     .eq("student_id", student.id);
-  if (isMissingSupabaseSchemaError(semestersError)) {
+  if (shouldFallbackToLocal(semestersError)) {
     return localRecord;
   }
   throwIfSupabaseError(semestersError, "Unable to load semester records.");
@@ -382,7 +397,7 @@ export async function findStudentRecord(query: string): Promise<StudentRecord | 
     .select("*")
     .eq("student_id", student.id)
     .maybeSingle();
-  if (isMissingSupabaseSchemaError(documentsError)) {
+  if (shouldFallbackToLocal(documentsError)) {
     return localRecord;
   }
   throwIfSupabaseError(documentsError, "Unable to load student documents.");
